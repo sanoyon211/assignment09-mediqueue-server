@@ -36,7 +36,6 @@ async function run() {
     await client.connect();
     console.log('🎯 Successfully connected to MongoDB!');
 
-
     // Database and Collections
     const db = client.db('mediqueue');
     const tutorsCollection = db.collection('tutors');
@@ -96,6 +95,81 @@ async function run() {
         });
       } catch (error) {
         console.error('Error creating tutor:', error);
+        res
+          .status(500)
+          .json({ success: false, message: 'Internal server error.' });
+      }
+    });
+
+    // 2. Get all tutors (with optional search and date filtering)
+    app.get('/api/tutors', async (req, res) => {
+      try {
+        const { search, startDate, endDate } = req.query;
+        let query = {};
+
+        // Case-insensitive search by tutor name
+        if (search) {
+          query.tutorName = { $regex: search, $options: 'i' };
+        }
+
+        // Date range filtering on sessionStartDate ($gte & $lte)
+        if (startDate || endDate) {
+          query.sessionStartDate = {};
+          if (startDate) {
+            query.sessionStartDate.$gte = startDate; // format: "YYYY-MM-DD"
+          }
+          if (endDate) {
+            query.sessionStartDate.$lte = endDate; // format: "YYYY-MM-DD"
+          }
+        }
+
+        const tutors = await tutorsCollection.find(query).toArray();
+        res
+          .status(200)
+          .json({ success: true, count: tutors.length, data: tutors });
+      } catch (error) {
+        console.error('Error fetching tutors:', error);
+        res
+          .status(500)
+          .json({ success: false, message: 'Internal server error.' });
+      }
+    });
+
+    // 3. Get featured tutors (limit to 6 using .limit() operator)
+    app.get('/api/tutors/featured', async (req, res) => {
+      try {
+        const tutors = await tutorsCollection.find({}).limit(6).toArray();
+        res
+          .status(200)
+          .json({ success: true, count: tutors.length, data: tutors });
+      } catch (error) {
+        console.error('Error fetching featured tutors:', error);
+        res
+          .status(500)
+          .json({ success: false, message: 'Internal server error.' });
+      }
+    });
+
+    // 4. Get a single tutor details by ID
+    app.get('/api/tutors/:id', async (req, res) => {
+      try {
+        const { id } = req.params;
+        if (!ObjectId.isValid(id)) {
+          return res
+            .status(400)
+            .json({ success: false, message: 'Invalid Tutor ID' });
+        }
+
+        const tutor = await tutorsCollection.findOne({ _id: new ObjectId(id) });
+        if (!tutor) {
+          return res
+            .status(404)
+            .json({ success: false, message: 'Tutor not found' });
+        }
+
+        res.status(200).json({ success: true, data: tutor });
+      } catch (error) {
+        console.error('Error fetching tutor details:', error);
         res
           .status(500)
           .json({ success: false, message: 'Internal server error.' });
