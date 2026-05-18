@@ -62,9 +62,7 @@ async function run() {
     const tutorsCollection = db.collection('tutors');
     const bookingsCollection = db.collection('bookings');
 
-    // ==========================================
     // TUTORS API ENDPOINTS
-    // ==========================================
 
     // 1. Add a new tutor
     app.post('/api/tutors', async (req, res) => {
@@ -227,30 +225,23 @@ async function run() {
         const bookingData = req.body;
         const decodedEmail = req.decoded.email;
 
-
         if (decodedEmail !== bookingData.studentEmail) {
-          return res
-            .status(403)
-            .json({
-              success: false,
-              message: 'Forbidden access: Email mismatch.',
-            });
+          return res.status(403).json({
+            success: false,
+            message: 'Forbidden access: Email mismatch.',
+          });
         }
-
 
         if (
           !bookingData.tutorId ||
           !bookingData.studentEmail ||
           !bookingData.phone
         ) {
-          return res
-            .status(400)
-            .json({
-              success: false,
-              message: 'Missing required booking details.',
-            });
+          return res.status(400).json({
+            success: false,
+            message: 'Missing required booking details.',
+          });
         }
-
 
         if (!ObjectId.isValid(bookingData.tutorId)) {
           return res
@@ -267,28 +258,23 @@ async function run() {
             .json({ success: false, message: 'Tutor not found.' });
         }
 
-
         if (tutor.totalSlot <= 0) {
           return res
             .status(400)
             .json({ success: false, message: 'No available slots left.' });
         }
 
-
         const currentDate = new Date();
         const sessionDate = new Date(tutor.sessionStartDate);
-
 
         currentDate.setHours(0, 0, 0, 0);
         sessionDate.setHours(0, 0, 0, 0);
 
         if (currentDate < sessionDate) {
-          return res
-            .status(400)
-            .json({
-              success: false,
-              message: 'Booking is not available yet for this tutor',
-            });
+          return res.status(400).json({
+            success: false,
+            message: 'Booking is not available yet for this tutor',
+          });
         }
 
         const newBooking = {
@@ -321,11 +307,164 @@ async function run() {
         });
       } catch (error) {
         console.error('Booking error:', error);
+        res.status(500).json({
+          success: false,
+          message: 'Internal server error during booking.',
+        });
+      }
+    });
+
+    // 7. Get tutors created by the logged-in user (Private route - verifyJWT required)
+    app.get('/api/tutors/my-tutors', verifyJWT, async (req, res) => {
+      try {
+        const decodedEmail = req.decoded.email;
+        const emailQuery = req.query.email;
+
+        // check if the requested email matches the decoded email from JWT
+        if (decodedEmail !== emailQuery) {
+          return res
+            .status(403)
+            .json({
+              success: false,
+              message: 'Forbidden access: Email mismatch.',
+            });
+        }
+
+        const myTutors = await tutorsCollection
+          .find({ creatorEmail: emailQuery })
+          .toArray();
+        res
+          .status(200)
+          .json({ success: true, count: myTutors.length, data: myTutors });
+      } catch (error) {
+        console.error('Error fetching my tutors:', error);
+        res
+          .status(500)
+          .json({ success: false, message: 'Internal server error.' });
+      }
+    });
+
+    // 8. Update a tutor profile (Private route - verifyJWT required)
+    app.put('/api/tutors/:id', verifyJWT, async (req, res) => {
+      try {
+        const { id } = req.params;
+        const updateData = req.body;
+        const decodedEmail = req.decoded.email;
+
+        if (!ObjectId.isValid(id)) {
+          return res
+            .status(400)
+            .json({ success: false, message: 'Invalid Tutor ID.' });
+        }
+
+        // check if the tutor exists and if the user is the owner
+        const existingTutor = await tutorsCollection.findOne({
+          _id: new ObjectId(id),
+        });
+        if (!existingTutor) {
+          return res
+            .status(404)
+            .json({ success: false, message: 'Tutor not found.' });
+        }
+
+        // check if the tutor's creatorEmail matches the decoded email from JWT
+        if (existingTutor.creatorEmail !== decodedEmail) {
+          return res
+            .status(403)
+            .json({
+              success: false,
+              message:
+                'Forbidden: You are not authorized to update this tutor profile.',
+            });
+        }
+
+        // data formatting and type conversion for update fields
+        const formattedUpdate = {
+          tutorName: updateData.tutorName,
+          photo: updateData.photo,
+          subject: updateData.subject,
+          availableDays: updateData.availableDays,
+          availableTime: updateData.availableTime,
+          hourlyFee: parseFloat(updateData.hourlyFee),
+          totalSlot: parseInt(updateData.totalSlot),
+          sessionStartDate: updateData.sessionStartDate,
+          institution: updateData.institution,
+          experience: updateData.experience,
+          location: updateData.location,
+          teachingMode: updateData.teachingMode,
+        };
+
+        const result = await tutorsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: formattedUpdate },
+        );
+
+        res.status(200).json({
+          success: true,
+          message: 'Tutor profile updated successfully!',
+          modifiedCount: result.modifiedCount,
+          data: formattedUpdate,
+        });
+      } catch (error) {
+        console.error('Error updating tutor:', error);
         res
           .status(500)
           .json({
             success: false,
-            message: 'Internal server error during booking.',
+            message: 'Internal server error during update.',
+          });
+      }
+    });
+
+    // 9. Delete a tutor profile (Private route - verifyJWT required)
+    app.delete('/api/tutors/:id', verifyJWT, async (req, res) => {
+      try {
+        const { id } = req.params;
+        const decodedEmail = req.decoded.email;
+
+        if (!ObjectId.isValid(id)) {
+          return res
+            .status(400)
+            .json({ success: false, message: 'Invalid Tutor ID.' });
+        }
+
+        // check if the tutor exists and if the user is the owner
+        const existingTutor = await tutorsCollection.findOne({
+          _id: new ObjectId(id),
+        });
+        if (!existingTutor) {
+          return res
+            .status(404)
+            .json({ success: false, message: 'Tutor not found.' });
+        }
+
+        // check if the tutor's creatorEmail matches the decoded email from JWT
+        if (existingTutor.creatorEmail !== decodedEmail) {
+          return res
+            .status(403)
+            .json({
+              success: false,
+              message:
+                'Forbidden: You are not authorized to delete this tutor profile.',
+            });
+        }
+
+        const result = await tutorsCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+
+        res.status(200).json({
+          success: true,
+          message: 'Tutor profile successfully deleted!',
+          deletedCount: result.deletedCount,
+        });
+      } catch (error) {
+        console.error('Error deleting tutor:', error);
+        res
+          .status(500)
+          .json({
+            success: false,
+            message: 'Internal server error during deletion.',
           });
       }
     });
