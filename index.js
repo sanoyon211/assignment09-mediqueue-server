@@ -55,7 +55,7 @@ async function run() {
   try {
     // Connect the client to the server
     await client.connect();
-    console.log('🎯 Successfully connected to MongoDB!');
+    console.log(' Successfully connected to MongoDB!');
 
     // Database and Collections
     const db = client.db('mediqueue');
@@ -83,22 +83,21 @@ async function run() {
             .json({ success: false, message: 'Missing required fields.' });
         }
 
-        // Data টাইপ কাস্টিং ও ফরমেটিং নিশ্চিত করা
+        // Data formatting and type conversion
         const formattedTutor = {
           tutorName: tutorData.tutorName,
           photo: tutorData.photo,
           subject: tutorData.subject,
-          availableDays: tutorData.availableDays, // e.g. ["Sun", "Mon", "Tue"] or String
-          availableTime: tutorData.availableTime, // e.g. "5:00 PM - 8:00 PM"
+          availableDays: tutorData.availableDays,
+          availableTime: tutorData.availableTime,
           hourlyFee: parseFloat(tutorData.hourlyFee),
           totalSlot: parseInt(tutorData.totalSlot),
-          sessionStartDate: tutorData.sessionStartDate, // format: YYYY-MM-DD
+          sessionStartDate: tutorData.sessionStartDate,
           institution: tutorData.institution,
           experience: tutorData.experience,
           location: tutorData.location,
-          teachingMode: tutorData.teachingMode, // Online, Offline, Both
+          teachingMode: tutorData.teachingMode,
 
-          // Creator Details (যিনি অ্যাড করছেন)
           creatorEmail: tutorData.creatorEmail,
           creatorName: tutorData.creatorName,
           creatorPhoto: tutorData.creatorPhoto,
@@ -202,12 +201,10 @@ async function run() {
       try {
         const { email } = req.body;
         if (!email) {
-          return res
-            .status(400)
-            .json({
-              success: false,
-              message: 'Email is required to sign JWT.',
-            });
+          return res.status(400).json({
+            success: false,
+            message: 'Email is required to sign JWT.',
+          });
         }
 
         // Generate Token (মেয়াদ: ৭ দিন)
@@ -221,6 +218,115 @@ async function run() {
         res
           .status(500)
           .json({ success: false, message: 'Failed to generate JWT token.' });
+      }
+    });
+
+    // 6. Book a session (Private route - verifyJWT required)
+    app.post('/api/bookings', verifyJWT, async (req, res) => {
+      try {
+        const bookingData = req.body;
+        const decodedEmail = req.decoded.email;
+
+
+        if (decodedEmail !== bookingData.studentEmail) {
+          return res
+            .status(403)
+            .json({
+              success: false,
+              message: 'Forbidden access: Email mismatch.',
+            });
+        }
+
+
+        if (
+          !bookingData.tutorId ||
+          !bookingData.studentEmail ||
+          !bookingData.phone
+        ) {
+          return res
+            .status(400)
+            .json({
+              success: false,
+              message: 'Missing required booking details.',
+            });
+        }
+
+
+        if (!ObjectId.isValid(bookingData.tutorId)) {
+          return res
+            .status(400)
+            .json({ success: false, message: 'Invalid Tutor ID.' });
+        }
+
+        const tutor = await tutorsCollection.findOne({
+          _id: new ObjectId(bookingData.tutorId),
+        });
+        if (!tutor) {
+          return res
+            .status(404)
+            .json({ success: false, message: 'Tutor not found.' });
+        }
+
+
+        if (tutor.totalSlot <= 0) {
+          return res
+            .status(400)
+            .json({ success: false, message: 'No available slots left.' });
+        }
+
+
+        const currentDate = new Date();
+        const sessionDate = new Date(tutor.sessionStartDate);
+
+
+        currentDate.setHours(0, 0, 0, 0);
+        sessionDate.setHours(0, 0, 0, 0);
+
+        if (currentDate < sessionDate) {
+          return res
+            .status(400)
+            .json({
+              success: false,
+              message: 'Booking is not available yet for this tutor',
+            });
+        }
+
+        const newBooking = {
+          tutorId: new ObjectId(bookingData.tutorId),
+          tutorName: tutor.tutorName,
+          tutorPhoto: tutor.photo,
+          subject: tutor.subject,
+          hourlyFee: tutor.hourlyFee,
+          studentName: bookingData.studentName,
+          studentEmail: bookingData.studentEmail,
+          phone: bookingData.phone,
+          bookStatus: 'booked', // auto-generated
+          bookedAt: new Date(),
+        };
+
+        // insert booking into bookings collection
+        const bookingResult = await bookingsCollection.insertOne(newBooking);
+
+        // 4. minus one slot from tutor's totalSlot
+        await tutorsCollection.updateOne(
+          { _id: new ObjectId(bookingData.tutorId) },
+          { $inc: { totalSlot: -1 } },
+        );
+
+        res.status(201).json({
+          success: true,
+          message: 'Session successfully booked! Slot has been reserved.',
+          bookingId: bookingResult.insertedId,
+          data: newBooking,
+        });
+      } catch (error) {
+        console.error('Booking error:', error);
+        res
+          .status(500)
+          .json({
+            success: false,
+            message: 'Internal server error during booking.',
+          });
       }
     });
 
