@@ -36,10 +36,71 @@ async function run() {
     await client.connect();
     console.log('🎯 Successfully connected to MongoDB!');
 
+
     // Database and Collections
     const db = client.db('mediqueue');
     const tutorsCollection = db.collection('tutors');
     const bookingsCollection = db.collection('bookings');
+
+    // ==========================================
+    // TUTORS API ENDPOINTS
+    // ==========================================
+
+    // 1. Add a new tutor
+    app.post('/api/tutors', async (req, res) => {
+      try {
+        const tutorData = req.body;
+
+        // Basic server-side validation
+        if (
+          !tutorData.tutorName ||
+          !tutorData.photo ||
+          !tutorData.subject ||
+          !tutorData.hourlyFee
+        ) {
+          return res
+            .status(400)
+            .json({ success: false, message: 'Missing required fields.' });
+        }
+
+        // Data টাইপ কাস্টিং ও ফরমেটিং নিশ্চিত করা
+        const formattedTutor = {
+          tutorName: tutorData.tutorName,
+          photo: tutorData.photo,
+          subject: tutorData.subject,
+          availableDays: tutorData.availableDays, // e.g. ["Sun", "Mon", "Tue"] or String
+          availableTime: tutorData.availableTime, // e.g. "5:00 PM - 8:00 PM"
+          hourlyFee: parseFloat(tutorData.hourlyFee),
+          totalSlot: parseInt(tutorData.totalSlot),
+          sessionStartDate: tutorData.sessionStartDate, // format: YYYY-MM-DD
+          institution: tutorData.institution,
+          experience: tutorData.experience,
+          location: tutorData.location,
+          teachingMode: tutorData.teachingMode, // Online, Offline, Both
+
+          // Creator Details (যিনি অ্যাড করছেন)
+          creatorEmail: tutorData.creatorEmail,
+          creatorName: tutorData.creatorName,
+          creatorPhoto: tutorData.creatorPhoto,
+
+          createdAt: new Date(),
+        };
+
+        const result = await tutorsCollection.insertOne(formattedTutor);
+
+        res.status(201).json({
+          success: true,
+          message: 'Tutor successfully registered!',
+          insertedId: result.insertedId,
+          data: formattedTutor,
+        });
+      } catch (error) {
+        console.error('Error creating tutor:', error);
+        res
+          .status(500)
+          .json({ success: false, message: 'Internal server error.' });
+      }
+    });
 
     // Basic Root Route
     app.get('/', (req, res) => {
