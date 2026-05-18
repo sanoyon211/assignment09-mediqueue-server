@@ -1,4 +1,5 @@
 import express from 'express';
+import jwt from 'jsonwebtoken';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { MongoClient, ServerApiVersion } from 'mongodb';
@@ -8,6 +9,26 @@ dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 5000;
+
+// JWT Verification Middleware
+const verifyJWT = (req, res, next) => {
+  const authorization = req.headers.authorization;
+  if (!authorization) {
+    return res.status(401).send({ success: false, error: true, message: 'Unauthorized access: No token provided' });
+  }
+  
+  // Header: Bearer <token>
+  const token = authorization.split(' ')[1];
+  
+  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
+    if (err) {
+      return res.status(403).send({ success: false, error: true, message: 'Forbidden access: Invalid or expired token' });
+    }
+    req.decoded = decoded;
+    next();
+  });
+};
+
 
 // Middleware
 app.use(
@@ -173,6 +194,33 @@ async function run() {
         res
           .status(500)
           .json({ success: false, message: 'Internal server error.' });
+      }
+    });
+
+    // 5. Generate JWT Token on User Login / Social Login
+    app.post('/api/jwt', async (req, res) => {
+      try {
+        const { email } = req.body;
+        if (!email) {
+          return res
+            .status(400)
+            .json({
+              success: false,
+              message: 'Email is required to sign JWT.',
+            });
+        }
+
+        // Generate Token (মেয়াদ: ৭ দিন)
+        const token = jwt.sign({ email }, process.env.JWT_SECRET, {
+          expiresIn: '7d',
+        });
+
+        res.status(200).json({ success: true, token });
+      } catch (error) {
+        console.error('JWT signing error:', error);
+        res
+          .status(500)
+          .json({ success: false, message: 'Failed to generate JWT token.' });
       }
     });
 
