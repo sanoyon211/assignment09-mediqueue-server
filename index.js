@@ -2,7 +2,7 @@ import express from 'express';
 import jwt from 'jsonwebtoken';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { MongoClient, ServerApiVersion } from 'mongodb';
+import { MongoClient, ServerApiVersion, ObjectId } from 'mongodb';
 
 // Load environment variables
 dotenv.config();
@@ -567,6 +567,15 @@ async function run() {
   }
 }
 run().catch(console.dir);
+
+app.use((err, req, res, next) => {
+  console.error(' Unhandled Global Error:', err.stack);
+  res.status(500).json({
+    success: false,
+    message: 'Something went wrong on the server!',
+    error: process.env.NODE_ENV === 'development' ? err.message : {},
+  });
+});
 
 // Start Server
 app.listen(port, () => {
