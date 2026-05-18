@@ -322,12 +322,10 @@ async function run() {
 
         // check if the requested email matches the decoded email from JWT
         if (decodedEmail !== emailQuery) {
-          return res
-            .status(403)
-            .json({
-              success: false,
-              message: 'Forbidden access: Email mismatch.',
-            });
+          return res.status(403).json({
+            success: false,
+            message: 'Forbidden access: Email mismatch.',
+          });
         }
 
         const myTutors = await tutorsCollection
@@ -369,13 +367,11 @@ async function run() {
 
         // check if the tutor's creatorEmail matches the decoded email from JWT
         if (existingTutor.creatorEmail !== decodedEmail) {
-          return res
-            .status(403)
-            .json({
-              success: false,
-              message:
-                'Forbidden: You are not authorized to update this tutor profile.',
-            });
+          return res.status(403).json({
+            success: false,
+            message:
+              'Forbidden: You are not authorized to update this tutor profile.',
+          });
         }
 
         // data formatting and type conversion for update fields
@@ -407,12 +403,10 @@ async function run() {
         });
       } catch (error) {
         console.error('Error updating tutor:', error);
-        res
-          .status(500)
-          .json({
-            success: false,
-            message: 'Internal server error during update.',
-          });
+        res.status(500).json({
+          success: false,
+          message: 'Internal server error during update.',
+        });
       }
     });
 
@@ -440,13 +434,11 @@ async function run() {
 
         // check if the tutor's creatorEmail matches the decoded email from JWT
         if (existingTutor.creatorEmail !== decodedEmail) {
-          return res
-            .status(403)
-            .json({
-              success: false,
-              message:
-                'Forbidden: You are not authorized to delete this tutor profile.',
-            });
+          return res.status(403).json({
+            success: false,
+            message:
+              'Forbidden: You are not authorized to delete this tutor profile.',
+          });
         }
 
         const result = await tutorsCollection.deleteOne({
@@ -460,11 +452,108 @@ async function run() {
         });
       } catch (error) {
         console.error('Error deleting tutor:', error);
+        res.status(500).json({
+          success: false,
+          message: 'Internal server error during deletion.',
+        });
+      }
+    });
+
+    // 10. Get bookings of the logged-in user (Private route - verifyJWT required)
+    app.get('/api/bookings/my-bookings', verifyJWT, async (req, res) => {
+      try {
+        const decodedEmail = req.decoded.email;
+        const emailQuery = req.query.email;
+
+        // security check: ensure the requested email matches the decoded email from JWT
+        if (decodedEmail !== emailQuery) {
+          return res
+            .status(403)
+            .json({
+              success: false,
+              message: 'Forbidden access: Email mismatch.',
+            });
+        }
+
+        const myBookings = await bookingsCollection
+          .find({ studentEmail: emailQuery })
+          .toArray();
+        res
+          .status(200)
+          .json({ success: true, count: myBookings.length, data: myBookings });
+      } catch (error) {
+        console.error('Error fetching my bookings:', error);
+        res
+          .status(500)
+          .json({ success: false, message: 'Internal server error.' });
+      }
+    });
+
+    // 11. Cancel a booking - Update status to "cancelled" (Private route - verifyJWT required)
+    app.patch('/api/bookings/:id/cancel', verifyJWT, async (req, res) => {
+      try {
+        const { id } = req.params;
+        const decodedEmail = req.decoded.email;
+
+        if (!ObjectId.isValid(id)) {
+          return res
+            .status(400)
+            .json({ success: false, message: 'Invalid Booking ID.' });
+        }
+
+
+        const booking = await bookingsCollection.findOne({
+          _id: new ObjectId(id),
+        });
+        if (!booking) {
+          return res
+            .status(404)
+            .json({ success: false, message: 'Booking not found.' });
+        }
+
+
+        if (booking.studentEmail !== decodedEmail) {
+          return res
+            .status(403)
+            .json({
+              success: false,
+              message:
+                'Forbidden: You are not authorized to cancel this booking.',
+            });
+        }
+
+
+        if (booking.bookStatus === 'cancelled') {
+          return res
+            .status(400)
+            .json({ success: false, message: 'Booking is already cancelled.' });
+        }
+
+
+        const result = await bookingsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { bookStatus: 'cancelled' } },
+        );
+
+
+        await tutorsCollection.updateOne(
+          { _id: new ObjectId(booking.tutorId) },
+          { $inc: { totalSlot: 1 } },
+        );
+
+        res.status(200).json({
+          success: true,
+          message:
+            'Booking cancelled successfully! Slot has been returned to the tutor.',
+          modifiedCount: result.modifiedCount,
+        });
+      } catch (error) {
+        console.error('Error cancelling booking:', error);
         res
           .status(500)
           .json({
             success: false,
-            message: 'Internal server error during deletion.',
+            message: 'Internal server error during cancellation.',
           });
       }
     });
