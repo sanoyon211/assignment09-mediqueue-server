@@ -3,43 +3,37 @@ import jwt from 'jsonwebtoken';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { MongoClient, ServerApiVersion, ObjectId } from 'mongodb';
-// Load environment variables
+
 dotenv.config();
-// Initialize express app
+
 const app = express();
 const port = process.env.PORT || 5000;
-// JWT Verification Middleware
+
 const verifyJWT = (req, res, next) => {
   const authorization = req.headers.authorization;
   if (!authorization) {
-    return res
-      .status(401)
-      .send({
-        success: false,
-        error: true,
-        message: 'Unauthorized access: No token provided',
-      });
+    return res.status(401).send({
+      success: false,
+      error: true,
+      message: 'Unauthorized access: No token provided',
+    });
   }
 
-  // Header: Bearer <token>
   const token = authorization.split(' ')[1];
 
   jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
     if (err) {
-      return res
-        .status(403)
-        .send({
-          success: false,
-          error: true,
-          message: 'Forbidden access: Invalid or expired token',
-        });
+      return res.status(403).send({
+        success: false,
+        error: true,
+        message: 'Forbidden access: Invalid or expired token',
+      });
     }
     req.decoded = decoded;
     next();
   });
 };
 
-// Middleware
 app.use(
   cors({
     origin: [
@@ -52,10 +46,8 @@ app.use(
 );
 app.use(express.json());
 
-// MongoDB connection URI
 const uri = process.env.MONGO_URI;
 
-// Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
@@ -66,23 +58,17 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    // Connect the client to the server
     await client.connect();
     console.log(' Successfully connected to MongoDB!');
 
-    // Database and Collections
     const db = client.db('mediqueue');
     const tutorsCollection = db.collection('tutors');
     const bookingsCollection = db.collection('bookings');
 
-    // TUTORS API ENDPOINTS
-
-    // 1. Add a new tutor
     app.post('/api/tutors', async (req, res) => {
       try {
         const tutorData = req.body;
 
-        // Basic server-side validation
         if (
           !tutorData.tutorName ||
           !tutorData.photo ||
@@ -94,11 +80,12 @@ async function run() {
             .json({ success: false, message: 'Missing required fields.' });
         }
 
-        // Data formatting and type conversion
         const formattedTutor = {
           tutorName: tutorData.tutorName,
           photo: tutorData.photo,
           subject: tutorData.subject,
+          language: tutorData.language,
+          description: tutorData.description,
           availableDays: tutorData.availableDays,
           availableTime: tutorData.availableTime,
           hourlyFee: parseFloat(tutorData.hourlyFee),
@@ -108,11 +95,9 @@ async function run() {
           experience: tutorData.experience,
           location: tutorData.location,
           teachingMode: tutorData.teachingMode,
-
           creatorEmail: tutorData.creatorEmail,
           creatorName: tutorData.creatorName,
           creatorPhoto: tutorData.creatorPhoto,
-
           createdAt: new Date(),
         };
 
@@ -132,25 +117,22 @@ async function run() {
       }
     });
 
-    // 2. Get all tutors (with optional search and date filtering)
     app.get('/api/tutors', async (req, res) => {
       try {
         const { search, startDate, endDate } = req.query;
         let query = {};
 
-        // Case-insensitive search by tutor name
         if (search) {
           query.tutorName = { $regex: search, $options: 'i' };
         }
 
-        // Date range filtering on sessionStartDate ($gte & $lte)
         if (startDate || endDate) {
           query.sessionStartDate = {};
           if (startDate) {
-            query.sessionStartDate.$gte = startDate; // format: "YYYY-MM-DD"
+            query.sessionStartDate.$gte = startDate;
           }
           if (endDate) {
-            query.sessionStartDate.$lte = endDate; // format: "YYYY-MM-DD"
+            query.sessionStartDate.$lte = endDate;
           }
         }
 
@@ -166,7 +148,6 @@ async function run() {
       }
     });
 
-    // 3. Get featured tutors (limit to 6 using .limit() operator)
     app.get('/api/tutors/featured', async (req, res) => {
       try {
         const tutors = await tutorsCollection.find({}).limit(6).toArray();
@@ -181,7 +162,32 @@ async function run() {
       }
     });
 
-    // 4. Get a single tutor details by ID
+    app.get('/api/tutors/my-tutors', verifyJWT, async (req, res) => {
+      try {
+        const decodedEmail = req.decoded.email;
+        const emailQuery = req.query.email;
+
+        if (decodedEmail !== emailQuery) {
+          return res.status(403).json({
+            success: false,
+            message: 'Forbidden access: Email mismatch.',
+          });
+        }
+
+        const myTutors = await tutorsCollection
+          .find({ creatorEmail: emailQuery })
+          .toArray();
+        res
+          .status(200)
+          .json({ success: true, count: myTutors.length, data: myTutors });
+      } catch (error) {
+        console.error('Error fetching my tutors:', error);
+        res
+          .status(500)
+          .json({ success: false, message: 'Internal server error.' });
+      }
+    });
+
     app.get('/api/tutors/:id', async (req, res) => {
       try {
         const { id } = req.params;
@@ -207,7 +213,6 @@ async function run() {
       }
     });
 
-    // 5. Generate JWT Token on User Login / Social Login
     app.post('/api/jwt', async (req, res) => {
       try {
         const { email } = req.body;
@@ -218,7 +223,6 @@ async function run() {
           });
         }
 
-        // Generate Token (মেয়াদ: ৭ দিন)
         const token = jwt.sign({ email }, process.env.JWT_SECRET, {
           expiresIn: '7d',
         });
@@ -232,7 +236,6 @@ async function run() {
       }
     });
 
-    // 6. Book a session (Private route - verifyJWT required)
     app.post('/api/bookings', verifyJWT, async (req, res) => {
       try {
         const bookingData = req.body;
@@ -277,19 +280,6 @@ async function run() {
             .json({ success: false, message: 'No available slots left.' });
         }
 
-        const currentDate = new Date();
-        const sessionDate = new Date(tutor.sessionStartDate);
-
-        currentDate.setHours(0, 0, 0, 0);
-        sessionDate.setHours(0, 0, 0, 0);
-
-        if (currentDate < sessionDate) {
-          return res.status(400).json({
-            success: false,
-            message: 'Booking is not available yet for this tutor',
-          });
-        }
-
         const newBooking = {
           tutorId: new ObjectId(bookingData.tutorId),
           tutorName: tutor.tutorName,
@@ -299,14 +289,13 @@ async function run() {
           studentName: bookingData.studentName,
           studentEmail: bookingData.studentEmail,
           phone: bookingData.phone,
-          bookStatus: 'booked', // auto-generated
+          bookingDate: bookingData.bookingDate,
+          bookStatus: 'booked',
           bookedAt: new Date(),
         };
 
-        // insert booking into bookings collection
         const bookingResult = await bookingsCollection.insertOne(newBooking);
 
-        // 4. minus one slot from tutor's totalSlot
         await tutorsCollection.updateOne(
           { _id: new ObjectId(bookingData.tutorId) },
           { $inc: { totalSlot: -1 } },
@@ -327,35 +316,6 @@ async function run() {
       }
     });
 
-    // 7. Get tutors created by the logged-in user (Private route - verifyJWT required)
-    app.get('/api/tutors/my-tutors', verifyJWT, async (req, res) => {
-      try {
-        const decodedEmail = req.decoded.email;
-        const emailQuery = req.query.email;
-
-        // check if the requested email matches the decoded email from JWT
-        if (decodedEmail !== emailQuery) {
-          return res.status(403).json({
-            success: false,
-            message: 'Forbidden access: Email mismatch.',
-          });
-        }
-
-        const myTutors = await tutorsCollection
-          .find({ creatorEmail: emailQuery })
-          .toArray();
-        res
-          .status(200)
-          .json({ success: true, count: myTutors.length, data: myTutors });
-      } catch (error) {
-        console.error('Error fetching my tutors:', error);
-        res
-          .status(500)
-          .json({ success: false, message: 'Internal server error.' });
-      }
-    });
-
-    // 8. Update a tutor profile (Private route - verifyJWT required)
     app.put('/api/tutors/:id', verifyJWT, async (req, res) => {
       try {
         const { id } = req.params;
@@ -368,7 +328,6 @@ async function run() {
             .json({ success: false, message: 'Invalid Tutor ID.' });
         }
 
-        // check if the tutor exists and if the user is the owner
         const existingTutor = await tutorsCollection.findOne({
           _id: new ObjectId(id),
         });
@@ -378,7 +337,6 @@ async function run() {
             .json({ success: false, message: 'Tutor not found.' });
         }
 
-        // check if the tutor's creatorEmail matches the decoded email from JWT
         if (existingTutor.creatorEmail !== decodedEmail) {
           return res.status(403).json({
             success: false,
@@ -387,11 +345,12 @@ async function run() {
           });
         }
 
-        // data formatting and type conversion for update fields
         const formattedUpdate = {
           tutorName: updateData.tutorName,
           photo: updateData.photo,
           subject: updateData.subject,
+          language: updateData.language,
+          description: updateData.description,
           availableDays: updateData.availableDays,
           availableTime: updateData.availableTime,
           hourlyFee: parseFloat(updateData.hourlyFee),
@@ -423,7 +382,6 @@ async function run() {
       }
     });
 
-    // 9. Delete a tutor profile (Private route - verifyJWT required)
     app.delete('/api/tutors/:id', verifyJWT, async (req, res) => {
       try {
         const { id } = req.params;
@@ -435,7 +393,6 @@ async function run() {
             .json({ success: false, message: 'Invalid Tutor ID.' });
         }
 
-        // check if the tutor exists and if the user is the owner
         const existingTutor = await tutorsCollection.findOne({
           _id: new ObjectId(id),
         });
@@ -445,7 +402,6 @@ async function run() {
             .json({ success: false, message: 'Tutor not found.' });
         }
 
-        // check if the tutor's creatorEmail matches the decoded email from JWT
         if (existingTutor.creatorEmail !== decodedEmail) {
           return res.status(403).json({
             success: false,
@@ -472,13 +428,11 @@ async function run() {
       }
     });
 
-    // 10. Get bookings of the logged-in user (Private route - verifyJWT required)
     app.get('/api/bookings/my-bookings', verifyJWT, async (req, res) => {
       try {
         const decodedEmail = req.decoded.email;
         const emailQuery = req.query.email;
 
-        // security check: ensure the requested email matches the decoded email from JWT
         if (decodedEmail !== emailQuery) {
           return res.status(403).json({
             success: false,
@@ -500,7 +454,6 @@ async function run() {
       }
     });
 
-    // 11. Cancel a booking - Update status to "cancelled" (Private route - verifyJWT required)
     app.patch('/api/bookings/:id/cancel', verifyJWT, async (req, res) => {
       try {
         const { id } = req.params;
@@ -560,12 +513,10 @@ async function run() {
       }
     });
 
-    // Basic Root Route
     app.get('/', (req, res) => {
       res.send('MediQueue Server is running smoothly 🚀');
     });
   } finally {
-    // Keep connection open
   }
 }
 run().catch(console.dir);
@@ -579,7 +530,6 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Start Server
 app.listen(port, () => {
-  console.log(`💻 Server is running on port ${port}`);
+  console.log(` Server is running on port ${port}`);
 });
