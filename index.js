@@ -3,37 +3,50 @@ import jwt from 'jsonwebtoken';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { MongoClient, ServerApiVersion, ObjectId } from 'mongodb';
-
 // Load environment variables
 dotenv.config();
-
+// Initialize express app
 const app = express();
 const port = process.env.PORT || 5000;
-
 // JWT Verification Middleware
 const verifyJWT = (req, res, next) => {
   const authorization = req.headers.authorization;
   if (!authorization) {
-    return res.status(401).send({ success: false, error: true, message: 'Unauthorized access: No token provided' });
+    return res
+      .status(401)
+      .send({
+        success: false,
+        error: true,
+        message: 'Unauthorized access: No token provided',
+      });
   }
-  
+
   // Header: Bearer <token>
   const token = authorization.split(' ')[1];
-  
+
   jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
     if (err) {
-      return res.status(403).send({ success: false, error: true, message: 'Forbidden access: Invalid or expired token' });
+      return res
+        .status(403)
+        .send({
+          success: false,
+          error: true,
+          message: 'Forbidden access: Invalid or expired token',
+        });
     }
     req.decoded = decoded;
     next();
   });
 };
 
-
 // Middleware
 app.use(
   cors({
-    origin: ['http://localhost:5173', process.env.CLIENT_URL],
+    origin: [
+      'http://localhost:3000',
+      'http://localhost:5173',
+      process.env.CLIENT_URL,
+    ],
     credentials: true,
   }),
 );
@@ -467,12 +480,10 @@ async function run() {
 
         // security check: ensure the requested email matches the decoded email from JWT
         if (decodedEmail !== emailQuery) {
-          return res
-            .status(403)
-            .json({
-              success: false,
-              message: 'Forbidden access: Email mismatch.',
-            });
+          return res.status(403).json({
+            success: false,
+            message: 'Forbidden access: Email mismatch.',
+          });
         }
 
         const myBookings = await bookingsCollection
@@ -501,7 +512,6 @@ async function run() {
             .json({ success: false, message: 'Invalid Booking ID.' });
         }
 
-
         const booking = await bookingsCollection.findOne({
           _id: new ObjectId(id),
         });
@@ -511,17 +521,13 @@ async function run() {
             .json({ success: false, message: 'Booking not found.' });
         }
 
-
         if (booking.studentEmail !== decodedEmail) {
-          return res
-            .status(403)
-            .json({
-              success: false,
-              message:
-                'Forbidden: You are not authorized to cancel this booking.',
-            });
+          return res.status(403).json({
+            success: false,
+            message:
+              'Forbidden: You are not authorized to cancel this booking.',
+          });
         }
-
 
         if (booking.bookStatus === 'cancelled') {
           return res
@@ -529,12 +535,10 @@ async function run() {
             .json({ success: false, message: 'Booking is already cancelled.' });
         }
 
-
         const result = await bookingsCollection.updateOne(
           { _id: new ObjectId(id) },
           { $set: { bookStatus: 'cancelled' } },
         );
-
 
         await tutorsCollection.updateOne(
           { _id: new ObjectId(booking.tutorId) },
@@ -549,12 +553,10 @@ async function run() {
         });
       } catch (error) {
         console.error('Error cancelling booking:', error);
-        res
-          .status(500)
-          .json({
-            success: false,
-            message: 'Internal server error during cancellation.',
-          });
+        res.status(500).json({
+          success: false,
+          message: 'Internal server error during cancellation.',
+        });
       }
     });
 
