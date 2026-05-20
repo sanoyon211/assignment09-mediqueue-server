@@ -13,6 +13,7 @@ const port = process.env.PORT || 5000;
 let db;
 let tutorsCollection;
 let bookingsCollection;
+let reviewsCollection;
 
 const uri = process.env.MONGO_URI;
 const client = new MongoClient(uri, {
@@ -31,10 +32,12 @@ const connectDB = async (req, res, next) => {
       db = client.db('mediqueue');
       tutorsCollection = db.collection('tutors');
       bookingsCollection = db.collection('bookings');
+      reviewsCollection = db.collection('reviews');
       console.log('Successfully connected to MongoDB!');
     }
     req.tutorsCollection = tutorsCollection;
     req.bookingsCollection = bookingsCollection;
+    req.reviewsCollection = reviewsCollection;
     next();
   } catch (error) {
     console.error('Database connection error:', error);
@@ -86,7 +89,7 @@ const verifyJWT = (req, res, next) => {
 
 
 app.get('/', (req, res) => {
-  res.send('MediQueue Server is running smoothly 🚀');
+  res.send('MediQueue Server is running smoothly ');
 });
 
 app.post('/api/tutors', async (req, res) => {
@@ -444,6 +447,83 @@ app.delete('/api/tutors/:id', verifyJWT, async (req, res) => {
       success: false,
       message: 'Internal server error during deletion.',
     });
+  }
+});
+
+app.post('/api/reviews', verifyJWT, async (req, res) => {
+  try {
+    const { tutorId, userName, userEmail, rating, feedbackText } = req.body;
+    const tutorsCollection = req.tutorsCollection;
+    const reviewsCollection = req.reviewsCollection;
+
+    if (!tutorId || !userName || !userEmail || !rating || !feedbackText) {
+      return res.status(400).json({ success: false, message: 'Missing required review fields.' });
+    }
+
+    if (!ObjectId.isValid(tutorId)) {
+      return res.status(400).json({ success: false, message: 'Invalid Tutor ID.' });
+    }
+
+    const tutor = await tutorsCollection.findOne({ _id: new ObjectId(tutorId) });
+    if (!tutor) {
+      return res.status(404).json({ success: false, message: 'Tutor not found.' });
+    }
+
+    const parsedRating = parseFloat(rating);
+    if (isNaN(parsedRating) || parsedRating < 1 || parsedRating > 5) {
+      return res.status(400).json({ success: false, message: 'Rating must be a number between 1 and 5.' });
+    }
+
+    const newReview = {
+      tutorId: new ObjectId(tutorId),
+      userName,
+      userEmail,
+      rating: parsedRating,
+      feedbackText,
+      createdAt: new Date()
+    };
+
+    await reviewsCollection.insertOne(newReview);
+
+    // Calculate new average rating for the tutor
+    const reviews = await reviewsCollection.find({ tutorId: new ObjectId(tutorId) }).toArray();
+    const totalRating = reviews.reduce((sum, r) => sum + r.rating, 0);
+    const avgRating = reviews.length > 0 ? totalRating / reviews.length : 5;
+
+    await tutorsCollection.updateOne(
+      { _id: new ObjectId(tutorId) },
+      { $set: { rating: parseFloat(avgRating.toFixed(1)) } }
+    );
+
+    res.status(201).json({
+      success: true,
+      message: 'Review submitted successfully!',
+      data: newReview
+    });
+  } catch (error) {
+    console.error('Error adding review:', error);
+    res.status(500).json({ success: false, message: 'Internal server error.' });
+  }
+});
+
+app.get('/api/reviews/tutor/:tutorId', async (req, res) => {
+  try {
+    const { tutorId } = req.params;
+    const reviewsCollection = req.reviewsCollection;
+
+    if (!ObjectId.isValid(tutorId)) {
+      return res.status(400).json({ success: false, message: 'Invalid Tutor ID.' });
+    }
+
+    const reviews = await reviewsCollection
+      .find({ tutorId: new ObjectId(tutorId) })
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    res.status(200).json({ success: true, count: reviews.length, data: reviews });
+  } catch (error) {
+    console.error('Error fetching reviews:', error);
+    res.status(500).json({ success: false, message: 'Internal server error.' });
   }
 });
 
