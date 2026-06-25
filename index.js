@@ -92,9 +92,10 @@ app.get('/', (req, res) => {
   res.send('MediQueue Server is running smoothly ');
 });
 
-app.post('/api/tutors', async (req, res) => {
+app.post('/api/tutors', verifyJWT, async (req, res) => {
   try {
     const tutorData = req.body;
+    const decodedEmail = req.decoded.email;
     const tutorsCollection = req.tutorsCollection;
 
     if (
@@ -123,7 +124,7 @@ app.post('/api/tutors', async (req, res) => {
       experience: tutorData.experience,
       location: tutorData.location,
       teachingMode: tutorData.teachingMode,
-      creatorEmail: tutorData.creatorEmail,
+      creatorEmail: decodedEmail,
       creatorName: tutorData.creatorName,
       creatorPhoto: tutorData.creatorPhoto,
       createdAt: new Date(),
@@ -231,28 +232,6 @@ app.get('/api/tutors/:id', async (req, res) => {
   }
 });
 
-app.post('/api/jwt', async (req, res) => {
-  try {
-    const { email } = req.body;
-    if (!email) {
-      return res.status(400).json({
-        success: false,
-        message: 'Email is required to sign JWT.',
-      });
-    }
-
-    const token = jwt.sign({ email }, process.env.JWT_SECRET, {
-      expiresIn: '7d',
-    });
-
-    res.status(200).json({ success: true, token });
-  } catch (error) {
-    console.error('JWT signing error:', error);
-    res
-      .status(500)
-      .json({ success: false, message: 'Failed to generate JWT token.' });
-  }
-});
 
 app.post('/api/bookings', verifyJWT, async (req, res) => {
   try {
